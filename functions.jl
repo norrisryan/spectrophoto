@@ -4,6 +4,7 @@ function fill(x1,x2,y1)
   j=1
   i=1
   m=1
+  tol=1e-20
   x1size=size(x1,1)
   x2size=size(x2,1)
   x1start=x1[1]
@@ -24,13 +25,13 @@ function fill(x1,x2,y1)
   for k=1:(x1size+x2size)
     if i<=x1size
       if j<=x2size
-        if x1[i] < x2[j] && x1[i] != x2[j]
+        if x1[i] < x2[j] && abs((x1[i]-x2[j])) > tol
           x3[k]=x1[i]
           y3[k]=y1[i]
           i=i+1
           m=m+1
         end
-        if x1[i] == x2[j]
+        if abs((x1[i]-x2[j])) < tol
           x3[k]=x2[j]
           y3[k]=y1[i]
           xlow[j]=k
@@ -40,7 +41,7 @@ function fill(x1,x2,y1)
           i=i+1
           m=m+1
         end
-        if x1[i] >x2[j] && x1[i] != x2[j]
+        if x1[i] >x2[j] && abs((x1[i]-x2[j])) > tol
           x3[k]=x2[j]
           xlow[j]=k
           xhigh[j]=k+1
