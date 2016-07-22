@@ -1,26 +1,26 @@
 #function for taking models and making into photometric points
-
+Pkg.add("Optim")
 Pkg.add("DustExtinction")
 Pkg.add("Interpolations")
 using Interpolations
 using DustExtinction
-
+using Optim
 
 #FUNCTIONS
 function getphoto(cols,rows,photodata)
   band=Array{String}(rows)
   wl=Array{Float64}(rows)
+  wlm=Array{Float64}(rows)
   fl=Array{Float64}(rows)
   fl_err=Array{Float64}(rows)
   for i=1:rows
     band[i]=photodata[i,1]
-    wl[i]=photodata[i,2]*10^4.0 # in Angstroms
+    wl[i]=photodata[i,2]*1e4 # in Angstroms
+    wlm[i]=photodata[i,2]*1e-6 #in meters
     #fl[i]=photodata[i,3] #Keep in Jy
     #fl_err[i]=photodata[i,4] #Keep in Jy
-   fl[i]=(photodata[i,3]/(wl[i]^2))*299792458*1.0e-21 #Convert to erg/cm^2/s/A
-   fl_err[i]=(photodata[i,4]/(wl[i]^2))*299792458*1.0e-21 #Convert to erg/cm^2/s/A
-   #fl[i]=(photodata[i,3])/299792458*1.0e23 #Convert to erg/cm^2/s/A
-   #fl_err[i]=(photodata[i,4])/299792458*1.0e23 #Convert to erg/cm^2/s/A
+   fl[i]=(photodata[i,3]/(wlm[i]^2))*299792458*1.0e-26 #W m-2 m
+   fl_err[i]=(photodata[i,4]/(wlm[i]^2))*299792458*1.0e-26 #W m-2 m
   end
   return band,wl,fl,fl_err
 end
@@ -29,21 +29,11 @@ function getbands(cols,rows,banddata)
   wl=Array{Float64}(rows)
   trans=Array{Float64}(rows)
   for i=1:rows
-    wl[i]=banddata[i,1] # in Angstroms
+    wl[i]=banddata[i,1] # in AngstromsS
     trans[i]=banddata[i,2] #transmission
   end
   return wl,trans
 end
-
-
-function deredden(flux,wavelength,rv)
-  extinct=ccm89(wave,rv)
-  funred=flux*10.^(0.4*extinct)
-  return extinct,funred
-end
-  rangeidxbegin,rangevalbegin=closest(modelwv,bandwv[i,1])
-  rangeidxend,rangevalend=closest(modelwv,bandwv[(i+1.0),1])
-
 
 function closest(arr,val)
   idx=find(arr .>= val) #indices with values greater than val
@@ -86,12 +76,6 @@ function fill(x1,x2,y1)
   x1end=x1[x1size]
   x2start=x2[1]
   x2end=x2[x2size]
-  if x1[1]>x2[1]
-    error("Lowest wavelength of filter of out Bounds! Exiting.")
-  end
-  if x1end<x2end
-    error("Highest wavelength of filter of out Bounds! Exiting.")
-  end
   x3=zeros(x1size+x2size)
   y3=zeros(x1size+x2size)
   xlow=zeros(x2size)
@@ -102,6 +86,8 @@ function fill(x1,x2,y1)
       if j<=x2size
         if x1[i] < x2[j] && x1[i] != x2[j]
           x3[k]=x1[i]
+          x1size=size(x1,1)
+          x2size=size(x2,1)
           y3[k]=y1[i]
           i=i+1
           m=m+1
@@ -116,6 +102,8 @@ function fill(x1,x2,y1)
           i=i+1
           m=m+1
         end
+        x1size=size(x1,1)
+        x2size=size(x2,1)
         if x1[i] >x2[j] && x1[i] != x2[j]
           x3[k]=x2[j]
           xlow[j]=k
@@ -158,52 +146,177 @@ function getphotpoint(x2,y2,x3,y3,x12pos)
   return value
 end
 
+#function chisquare(data,model,error)
+#  chi=0.0
+#  par=maximum(data)/maximum(model)
+#  for i=1:length(data)
+#    chi=(((data[i].-model[i]*par)./error[i]).^2.0).+chi
+#  end
+#  return chi
+#end
+
+function deredden(flux,wavelength,rv)
+  extinct=ccm89(wave,rv)
+  funred=flux*10.^(0.4*extinct)
+  return extinct,funred
+end
+
+#function chisquare(alphas)
+#  chi=[0.0,0.0]
+#  par=maximum(photofl)/maximum(modelphoto)
+#  for i=1:length(photofl)
+#    chi[1,1]+=(((alphas[1]+photofl[i]-modelphoto[i]*alphas[2])/photofl_err[i])^2.0)
+#  end
+#  return chi[1,1]
+#end
+
+function chimin(params)
+  redloc=find(modelwv .< 33333.3)
+  redmodelwv=modelwv[redloc]
+  redmodelfl=redmodelfl_o.*9.999999994059551e-14.*params[1]
+  redmodelflloc=redmodelfl[redloc]
+  extinct=ccm89(redmodelwv,params[2])
+  modelfl=redmodelflloc.*10.^(0.4.*extinct)
+  for i=1:photorows
+    bandname=photoband[i]
+    currentband=readdlm("$banddirectory/$bandname.csv",',')  #open transmission file
+    sband=size(currentband)
+    bandrows=sband[1]
+    bandcols=sband[2]
+    bandwv,bandtrans=getbands(bandcols,bandrows,currentband)
+    bandbegin=bandwv[1]
+    bandend=bandwv[bandrows]
+    value=0.0
+    #interpolate and multiply together and integrate
+    x1=redmodelwv
+    x2=bandwv
+    y1=modelfl
+    y2=bandtrans
+    x1size=size(x1,1)
+    x2size=size(x2,1)
+    x1end=x1[x1size]
+    x2end=x2[x2size]
+    if x1[1]>x2[1]
+      #println("Lowest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    if x1end<x2end
+      #println("Highest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
+    photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
+    modelphoto[i]=photopoint
+    modelphotowv[i]=photowv[i]
+  end
+  chi=0.0
+  for i=1:length(photofl)
+    chi+=(((photofl[i].-modelphoto[i]).^2.0)./photofl_err[i])
+  end
+  return chi
+  #lowest=minimum(chisquarearr)
+  #chi_min=chisquarearr[indmin(chisquarearr)]
+  #modelmin=modellist[indmin(chisquarearr)]
+end
+
+function findalpha(alpha)
+  redmodelfl=redmodelfl_o*9.999999994059551e-14*alpha
+  #extinct=ccm89(modelwv,params[2])
+  #modelfl=redmodelfl*10.^(0.4*extinct)
+  modelfl=redmodelfl
+  for i=1:photorows
+    bandname=photoband[i]
+    currentband=readdlm("$banddirectory/$bandname.csv",',')  #open transmission file
+    sband=size(currentband)
+    bandrows=sband[1]
+    bandcols=sband[2]
+    bandwv,bandtrans=getbands(bandcols,bandrows,currentband)
+    bandbegin=bandwv[1]
+    bandend=bandwv[bandrows]
+    value=0.0
+    #interpolate and multiply together and integrate
+    x1=modelwv
+    x2=bandwv
+    y1=modelfl
+    y2=bandtrans
+    x1size=size(x1,1)
+    x2size=size(x2,1)
+    x1end=x1[x1size]
+    x2end=x2[x2size]
+    if x1[1]>x2[1]
+      #println("Lowest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    if x1end<x2end
+      #println("Highest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
+    photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
+    modelphoto[i]=photopoint
+    modelphotowv[i]=photowv[i]
+  end
+  chi=0.0
+  for i=1:length(photofl)
+    chi+=(((photofl[i].-modelphoto[i]).^2.0)/photofl_err[i])
+  end
+  return chi
+  #lowest=minimum(chisquarearr)
+  #chi_min=chisquarearr[indmin(chisquarearr)]
+  #modelmin=modellist[indmin(chisquarearr)]
+end
+
 #-------------------------------START PROGRAM-----------------------------------------
-
-
-banddirectory="/home/norris/SYNTHSPEC/FILTERS"
+basedirectory="/home/norris/SYNTHSPEC/"
+banddirectory="$basedirectory/FILTERS"
+photofile="$basedirectory/photometry_azcygbandsmod.csv"
+modellistfile="$basedirectory/MARCS/modellist.txt"
+modelwavelength="$basedirectory/flx_wavelengths.vac"
 #read files in
 photo=readdlm(photofile,',')
 photosize=size(photo)
 photorows=photosize[1]
 photocols=photosize[2]
-modelfl=readdlm(modelflux,',')       #read in model flux
-modelwv=readdlm(modelwavelength,',')  #read in model wavelength
-sflx=size(modelfl)
-flxrows=sflx[1]
-flxcols=sflx[2]
-swv=size(modelwv)
-wvrows=swv[1]
-wvcols=swv[2]
-
+modellist=readdlm(modellistfile)
+modeln=size(modellist,1)
+modelwvvac=readdlm(modelwavelength,',')  #read in model wavelength
+modelwv = modelwvvac ./ (1.0 + 2.735182E-4 + 131.4182 ./ modelwvvac.^2 + 2.76249E8./ modelwvvac.^4)
+modelwvm=modelwv*1e-10
 #photometry gathering
 photoband,photowv,photofl,photofl_err=getphoto(photocols,photorows,photo)
+photofl_err[photofl_err.==0.0]=1e-7
 modelphoto=zeros(Float64,photorows)
 modelphotowv=zeros(Float64,photorows)
+chisquarearr=zeros(Float64,modeln)
+rvs=zeros(Float64,modeln)
+weights=zeros(Float64,modeln)
 #get model photometric points based on transmission and bands used in obsv
-
-for i=1:photorows
-  bandname=photoband[i]
-  currentband=readdlm("$banddirectory/$bandname.csv",',')  #open transmission file
-  sband=size(currentband)
-  bandrows=sband[1]
-  bandcols=sband[2]
-  bandwv,bandtrans=getbands(bandcols,bandrows,currentband)
-  bandbegin=bandwv[1]
-  bandend=bandwv[bandrows]
-  value=0.0
-  #interpolate and multiply together and integrate
-  x1=modelwv
-  x2=bandwv
-  y1=modelfl
-  y2=bandtrans
-  x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
-  photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
-  modelphoto[i]=photopoint
-  modelphotowv[i]=photowv[i]
+for j=1:modeln
+  model=modellist[j]
+  println(model," ")
+  modelflux="$basedirectory/MARCS/$model"
+  redmodelfl_o=readdlm(modelflux,',')       #read in model flux
+  #alphas=zeros(Float64,100)
+  #alphaarr=zeros(Float64,100)
+  #betas=zeros(Float64,100)
+  #numberparm=length(alphas)
+#  for i=1:length(alphas)
+#      alpha=alphas[i]+i*0.05
+#      alphaarr[i]=alpha
+#      chisquarearr[i]=findalpha(alpha)
+#  end
+  chisquared=optimize(chimin,[0.0,0.0])
+  chisquareval=Optim.minimum(chisquared)
+  chisquarearr[j]=chisquareval
+  values=Optim.minimizer(chisquared)
+  weights[j]=values[1]
+  rvs[j]=values[2]
+  println("Chi^2: ",chisquarearr[j]," Weight: ",weights[j]," RV: ",rvs[j])
 end
+lowchi=minimum(chisquarearr)
+loweight=weights[indmin(chisquarearr)]
+lowrv=rvs[indmin(chisquarearr)]
 end
-
 
 
 
