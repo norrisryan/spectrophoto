@@ -1,22 +1,86 @@
+function getphoto(cols,rows,photodata)
+  band=Array{String}(rows)
+  wl=Array{Float64}(rows)
+  wlm=Array{Float64}(rows)
+  fl=Array{Float64}(rows)
+  fl_err=Array{Float64}(rows)
+  for i=1:rows
+    band[i]=photodata[i,1]
+    wl[i]=photodata[i,2]*1e4 # in Angstroms
+    wlm[i]=photodata[i,2]*1e-6 #in meters
+    #fl[i]=photodata[i,3] #Keep in Jy
+    #fl_err[i]=photodata[i,4] #Keep in Jy
+   fl[i]=(photodata[i,3]/(wlm[i]^2))*299792458*1.0e-26 #W m-2 m
+   fl_err[i]=(photodata[i,4]/(wlm[i]^2))*299792458*1.0e-26 #W m-2 m
+  end
+  return band,wl,fl,fl_err
+end
 
+function getspectro(cols,rows,spectrodata)
+  wl=Array{Float64}(rows)
+  wlm=Array{Float64}(rows)
+  fl=Array{Float64}(rows)
+  fl_err=Array{Float64}(rows)
+  for i=1:rows
+    wl[i]=photodata[i,1]*1e4 # in Angstroms
+    wlm[i]=photodata[i,1]*1e-6 #in meters
+   fl[i]=(spectrodata[i,3]/(wlm[i]^2))*299792458*1.0e-26 #W m-2 m
+   fl_err[i]=(spectrodata[i,4]/(wlm[i]^2))*299792458*1.0e-26 #W m-2 m
+  end
+  return wl,fl,fl_err
+end
+
+function getbands(cols,rows,banddata)
+  wl=Array{Float64}(rows)
+  trans=Array{Float64}(rows)
+  for i=1:rows
+    wl[i]=banddata[i,1] # in AngstromsS
+    trans[i]=banddata[i,2] #transmission
+  end
+  return wl,trans
+end
+
+function closest(arr,val)
+  idx=find(arr .>= val) #indices with values greater than val
+  if idx[1] .> 1 #make sure that it's not one
+    above=idx[1]
+    if abs(val-arr[above])<abs(val-arr[above-1])
+      return above,arr[above]
+    else
+      return (above-1),arr[above-1]
+    end
+  else
+    return idx[1],arr[idx[1]]
+  end
+end
+
+function getline(xarr,yarr,idx)
+  if idx .== 1
+    delx=xarr[idx+1]-xarr[idx]
+    dely=yarr[idx+1]-yarr[idx]
+  else
+    delx=xarr[idx]-xarr[idx-1]
+    dely=yarr[idx]-yarr[idx-1]
+  end
+  if delx.== 0
+    c1=0.0
+    delx=0.00001
+  else
+    c1=yarr[idx]-(dely/delx)*xarr[idx]
+  end
+  return delx,dely,c1
+end
 
 function fill(x1,x2,y1)
   j=1
   i=1
   m=1
-  tol=1e-20
   x1size=size(x1,1)
   x2size=size(x2,1)
   x1start=x1[1]
   x1end=x1[x1size]
   x2start=x2[1]
   x2end=x2[x2size]
-  if x1[1]>x2[1]
-    error("Lowest wavelength of filter of out Bounds! Exiting.")
-  end
-  if x1end<x2end
-    error("Highest wavelength of filter of out Bounds! Exiting.")
-  end
   x3=zeros(x1size+x2size)
   y3=zeros(x1size+x2size)
   xlow=zeros(x2size)
@@ -25,13 +89,15 @@ function fill(x1,x2,y1)
   for k=1:(x1size+x2size)
     if i<=x1size
       if j<=x2size
-        if x1[i] < x2[j] && abs((x1[i]-x2[j])) > tol
+        if x1[i] < x2[j] && x1[i] != x2[j]
           x3[k]=x1[i]
+          x1size=size(x1,1)
+          x2size=size(x2,1)
           y3[k]=y1[i]
           i=i+1
           m=m+1
         end
-        if abs((x1[i]-x2[j])) < tol
+        if x1[i] == x2[j]
           x3[k]=x2[j]
           y3[k]=y1[i]
           xlow[j]=k
@@ -41,7 +107,9 @@ function fill(x1,x2,y1)
           i=i+1
           m=m+1
         end
-        if x1[i] >x2[j] && abs((x1[i]-x2[j])) > tol
+        x1size=size(x1,1)
+        x2size=size(x2,1)
+        if x1[i] >x2[j] && x1[i] != x2[j]
           x3[k]=x2[j]
           xlow[j]=k
           xhigh[j]=k+1
@@ -83,51 +151,188 @@ function getphotpoint(x2,y2,x3,y3,x12pos)
   return value
 end
 
-x1=linspace(-pi,pi,1000)
-y1=sin(x1)
-x2=linspace(0,3/4*pi,10)
-y2=cos(x2)
-x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
-photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
-println("Equal Spacing: Integral of Cos(x)*Sin(x) from 0 to 3/4*pi: ",photopoint)
+#function chisquare(data,model,error)
+#  chi=0.0
+#  par=maximum(data)/maximum(model)
+#  for i=1:length(data)
+#    chi=(((data[i].-model[i]*par)./error[i]).^2.0).+chi
+#  end
+#  return chi
+#end
 
-x1=[-pi,-1.5,0,0.2,0.3,0.45,0.47,0.48,.5,.75,1.0,2.0,pi]
-y1=sin(x1)
-x2=[0,0.1,0.5,1.0,1.5,3/4*pi]
-y2=cos(x2)
-x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
-photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
-println("Unequal Spacing: Integral of Cos(x)*Sin(x) from 0 to 3/4*pi: ",photopoint)
+function deredden(flux,wavelength,rv)
+  extinct=ccm89(wave,rv)
+  funred=flux*10.^(0.4*extinct)
+  return extinct,funred
+end
 
-x1=linspace(0,100,400)
-y1=x1*0+3
-x2=linspace(20,40,10)
-y2=x2*0+2
-x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
-photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
-println("Equal Spacing: Integral of 3*2 from 20 to 40: ",photopoint)
+#function chisquare(alphas)
+#  chi=[0.0,0.0]
+#  par=maximum(photofl)/maximum(modelphoto)
+#  for i=1:length(photofl)
+#    chi[1,1]+=(((alphas[1]+photofl[i]-modelphoto[i]*alphas[2])/photofl_err[i])^2.0)
+#  end
+#  return chi[1,1]
+#end
 
-x1=[0,1,2,3,4,5,10,20,25,35,37,38,39,41,42,50,60]
-y1=x1*0+3
-x2=[20,25,27,28,33]
-y2=x2*0+2
-x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
-photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
-println("Unequal Spacing: Integral of 3*2 from 20 to 40: ",photopoint)
+function chiminspectro(params)
+  redloc=find(modelwv .< 33333.3)
+  redmodelwv=modelwv[redloc]
+  redmodelfl=redmodelfl_o.*9.999999994059551e-14.*params[1]
+  redmodelflloc=redmodelfl[redloc]
+  extinct=ccm89(redmodelwv,params[2])
+  modelfl=redmodelflloc.*10.^(0.4.*extinct)
+  for i=1:spectrorows
+    value=0.0
+    #interpolate and multiply together and integrate
+    x1=redmodelwv
+    x2=spectrowv
+    y1=modelfl
+    y2=bandtrans
+    x1size=size(x1,1)
+    x2size=size(x2,1)
+    x1end=x1[x1size]
+    x2end=x2[x2size]
+    if x1[1]>x2[1]
+      #println("Lowest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    if x1end<x2end
+      #println("Highest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
+    photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
+    modelphoto[i]=photopoint
+    modelphotowv[i]=photowv[i]
+  end
+  chi=0.0
+  for i=1:length(photofl)
+    chi+=(((photofl[i].-modelphoto[i]).^2.0)./photofl_err[i])
+  end
+  return chi
+  #lowest=minimum(chisquarearr)
+  #chi_min=chisquarearr[indmin(chisquarearr)]
+  #modelmin=modellist[indmin(chisquarearr)]
+end
 
-println("Testing Error: Filter bound too low")
-x1=[0,1,2,3,4,5,10,20,25,35,37,38,39,41,42,50,60]
-y1=x1*0+3
-x2=[-10,20,25,27,28,33]
-y2=x2*0+2
-x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
-photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
 
-println("Testing Error: Filter bound too high")
-x1=[0,1,2,3,4,5,10,20,25,35,37,38,39,41,42,50,60]
-y1=x1*0+3
-x2=[10,20,25,27,28,33,75]
-y2=x2*0+2
-x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
-photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
+function chiminphoto(params)
+  redloc=find(modelwv .< 33333.3)
+  redmodelwv=modelwv[redloc]
+  redmodelfl=redmodelfl_o.*9.999999994059551e-14.*params[1]
+  redmodelflloc=redmodelfl[redloc]
+  extinct=ccm89(redmodelwv,params[2])
+  modelfl=redmodelflloc.*10.^(0.4.*extinct)
+  for i=1:photorows
+    bandname=photoband[i]
+    currentband=readdlm("$banddirectory/$bandname.csv",',')  #open transmission file
+    sband=size(currentband)
+    bandrows=sband[1]
+    bandcols=sband[2]
+    bandwv,bandtrans=getbands(bandcols,bandrows,currentband)
+    bandbegin=bandwv[1]
+    bandend=bandwv[bandrows]
+    value=0.0
+    #interpolate and multiply together and integrate
+    x1=redmodelwv
+    x2=bandwv
+    y1=modelfl
+    y2=bandtrans
+    x1size=size(x1,1)
+    x2size=size(x2,1)
+    x1end=x1[x1size]
+    x2end=x2[x2size]
+    if x1[1]>x2[1]
+      #println("Lowest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    if x1end<x2end
+      #println("Highest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
+    photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
+    modelphoto[i]=photopoint
+    modelphotowv[i]=photowv[i]
+  end
+  chi=0.0
+  for i=1:length(photofl)
+    chi+=(((photofl[i].-modelphoto[i]).^2.0)./photofl_err[i])
+  end
+  return chi
+  #lowest=minimum(chisquarearr)
+  #chi_min=chisquarearr[indmin(chisquarearr)]
+  #modelmin=modellist[indmin(chisquarearr)]
+end
+
+function findalpha(alpha)
+  redmodelfl=redmodelfl_o*9.999999994059551e-14*alpha
+  #extinct=ccm89(modelwv,params[2])
+  #modelfl=redmodelfl*10.^(0.4*extinct)
+  modelfl=redmodelfl
+  for i=1:photorows
+    bandname=photoband[i]
+    currentband=readdlm("$banddirectory/$bandname.csv",',')  #open transmission file
+    sband=size(currentband)
+    bandrows=sband[1]
+    bandcols=sband[2]
+    bandwv,bandtrans=getbands(bandcols,bandrows,currentband)
+    bandbegin=bandwv[1]
+    bandend=bandwv[bandrows]
+    value=0.0
+    #interpolate and multiply together and integrate
+    x1=modelwv
+    x2=bandwv
+    y1=modelfl
+    y2=bandtrans
+    x1size=size(x1,1)
+    x2size=size(x2,1)
+    x1end=x1[x1size]
+    x2end=x2[x2size]
+    if x1[1]>x2[1]
+      #println("Lowest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    if x1end<x2end
+      #println("Highest wavelength of filter of out Bounds! Exiting.")
+      break
+    end
+    x3,xlow,xhigh,y3,x12pos=fill(x1,x2,y1)
+    photopoint=getphotpoint(x2,y2,x3,y3,x12pos)
+    modelphoto[i]=photopoint
+    modelphotowv[i]=photowv[i]
+  end
+  chi=0.0
+  for i=1:length(photofl)
+    chi+=(((photofl[i].-modelphoto[i]).^2.0)/photofl_err[i])
+  end
+  return chi
+  #lowest=minimum(chisquarearr)
+  #chi_min=chisquarearr[indmin(chisquarearr)]
+  #modelmin=modellist[indmin(chisquarearr)]
+end
+
+function input(prompt::AbstractString="")
+  print(prompt)
+  return chomp(readline())
+end
+
+function boloflux(spectrum,waves)
+    n=size((model),1)
+    bflux=0.0
+    range=find(waves .< 33333.3)
+    wvl=waves[range]
+    bolofluxmodel=spectrum[range]
+    #probably need to put onto same scale
+    for i=1:n
+      bflux=bolofluxmodel[i]*(wvl[i+1]-wvl[i])+blfux
+    return bflux
+end
+
+function parameters(flux,angdiameter,temp)
+  #F=4*pi*sigma*T^4/R^2
+  #angdiameter=202605*2*R/D
+  #what exactly do I need to find here?
+
 end
