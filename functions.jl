@@ -1,9 +1,9 @@
 function getphoto(cols,rows,photodata)
-  band=Array{String}(rows)
-  wl=Array{Float64}(rows)
-  wlm=Array{Float64}(rows)
-  fl=Array{Float64}(rows)
-  fl_err=Array{Float64}(rows)
+  band=Array{String}(undef,rows)
+  wl=Array{Float64}(undef,rows)
+  wlm=Array{Float64}(undef,rows)
+  fl=Array{Float64}(undef,rows)
+  fl_err=Array{Float64}(undef,rows)
   for i=1:rows
     band[i]=photodata[i,1]
     wl[i]=photodata[i,2]*1e4 # in Angstroms
@@ -17,10 +17,10 @@ function getphoto(cols,rows,photodata)
 end
 
 function getspectro(cols,rows,spectrodata)
-  wl=Array{Float64}(rows)
-  wlm=Array{Float64}(rows)
-  fl=Array{Float64}(rows)
-  fl_err=Array{Float64}(rows)
+  wl=Array{Float64}(undef,rows)
+  wlm=Array{Float64}(undef,rows)
+  fl=Array{Float64}(undef,rows)
+  fl_err=Array{Float64}(undef,rows)
   for i=1:rows
     wl[i]=photodata[i,1]*1e4 # in Angstroms
     wlm[i]=photodata[i,1]*1e-6 #in meters
@@ -31,8 +31,8 @@ function getspectro(cols,rows,spectrodata)
 end
 
 function getbands(cols,rows,banddata)
-  wl=Array{Float64}(rows)
-  trans=Array{Float64}(rows)
+  wl=Array{Float64}(undef,rows)
+  trans=Array{Float64}(undef,rows)
   for i=1:rows
     wl[i]=banddata[i,1] # in AngstromsS
     trans[i]=banddata[i,2] #transmission
@@ -162,7 +162,7 @@ end
 
 function deredden(flux,wavelength,rv)
   extinct=ccm89(wave,rv)
-  funred=flux*10.^(0.4*extinct)
+  funred=flux*10^(0.4*extinct)
   return extinct,funred
 end
 
@@ -176,12 +176,12 @@ end
 #end
 
 function chiminspectro(params)
-  redloc=find(modelwv .< 33333.3)
+  redloc=(LinearIndices(modelwv .< 33333.3))[findall(modelwv .< 33333.3)]
   redmodelwv=modelwv[redloc]
   redmodelfl=redmodelfl_o.*9.999999994059551e-14.*params[1]
   redmodelflloc=redmodelfl[redloc]
   extinct=ccm89(redmodelwv,params[2])
-  modelfl=redmodelflloc.*10.^(0.4.*extinct)
+  modelfl=redmodelflloc.*10^(0.4.*extinct)
   for i=1:spectrorows
     value=0.0
     #interpolate and multiply together and integrate
@@ -218,12 +218,12 @@ end
 
 
 function chiminphoto(params)
-  redloc=find(modelwv .< 33333.3)
+  redloc=(LinearIndices(modelwv .< 33333.3))[findall(modelwv .< 33333.3)]
   redmodelwv=modelwv[redloc]
   redmodelfl=redmodelfl_o.*9.999999994059551e-14.*params[1]
   redmodelflloc=redmodelfl[redloc]
   extinct=ccm89(redmodelwv,params[2])
-  modelfl=redmodelflloc.*10.^(0.4.*extinct)
+  modelfl=redmodelflloc.*10^(0.4.*extinct)
   for i=1:photorows
     bandname=photoband[i]
     currentband=readdlm("$banddirectory/$bandname.csv",',')  #open transmission file
@@ -319,20 +319,25 @@ function input(prompt::AbstractString="")
 end
 
 function boloflux(spectrum,waves)
-    n=size((model),1)
-    bflux=0.0
-    range=find(waves .< 33333.3)
-    wvl=waves[range]
-    bolofluxmodel=spectrum[range]
+    blflux=0.0
+    wvrange=(LinearIndices(waves .< 33333.3))[findall(waves .< 33333.3)]
+    wvl=waves[wvrange]
+    bolofluxmodel=spectrum[wvrange]
+    n=maximum(wvrange)
     #probably need to put onto same scale
-    for i=1:n
-      bflux=bolofluxmodel[i]*(wvl[i+1]-wvl[i])+blfux
+    for i=2:n
+      blflux=bolofluxmodel[i-1]*(wvl[i]-wvl[i-1])+blflux
+    end
+    #convert to W*m-2
+    bflux=blflux*1e-7/100^2
     return bflux
 end
 
 function parameters(flux,angdiameter,temp)
-  #F=4*pi*sigma*T^4/R^2
-  #angdiameter=202605*2*R/D
+    F=4*pi*sigma*T^4/R^2
+    sigma=5.670367e-8
+    radius=sqrt(4*pi*sigma*temp^4)/flux
+    angdiameter=202605*2*R/D
+#  D=
   #what exactly do I need to find here?
-
-end
+#end

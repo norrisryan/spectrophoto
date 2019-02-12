@@ -1,11 +1,12 @@
 #function for taking models and making into photometric points
-Pkg.add("Optim")
-Pkg.add("DustExtinction")
-Pkg.add("Interpolations")
+#Pkg.add("Optim")
+#Pkg.add("DustExtinction")
+#Pkg.add("Interpolations")
 #Pkg.add("Gtk")
 using Interpolations
 using DustExtinction
 using Optim
+using DelimitedFiles
 #using Gtk
 include("functions.jl")
 #-------------------------------START PROGRAM-----------------------------------------
@@ -23,16 +24,17 @@ photocols=photosize[2]
 modellist=readdlm(modellistfile)
 modeln=size(modellist,1)
 modelwvvac=readdlm(modelwavelength,',')  #read in model wavelength
-modelwv = modelwvvac ./ (1.0 + 2.735182E-4 + 131.4182 ./ modelwvvac.^2 + 2.76249E8./ modelwvvac.^4)
-modelwvm=modelwv*1e-10
+modelwv = modelwvvac ./ (1.0 + 2.735182E-4 + 131.4182 ./ modelwvvac.^2 + 2.76249E8./ modelwvvac.^4) #make into air
+modelwvm=modelwv*1e-10 #set as meters
 #photometry gathering
 photoband,photowv,photofl,photofl_err=getphoto(photocols,photorows,photo)
-photofl_err[photofl_err.==0.0]=1e-7
+photofl_err[photofl_err.==0.0].=1e-7
 modelphoto=zeros(Float64,photorows)
 modelphotowv=zeros(Float64,photorows)
 chisquarearr=zeros(Float64,modeln)
 rvs=zeros(Float64,modeln)
 weights=zeros(Float64,modeln)
+modelflux=""
 #get model photometric points based on transmission and bands used in obsv
 for j=1:modeln
   model=modellist[j]
@@ -48,10 +50,10 @@ for j=1:modeln
   println("Chi^2: ",chisquarearr[j]," Weight: ",weights[j]," RV: ",rvs[j])
 end
 lowchi=minimum(chisquarearr)
-loweight=weights[indmin(chisquarearr)]
-lowrv=rvs[indmin(chisquarearr)]
+loweight=weights[argmin(chisquarearr)]
+lowrv=rvs[argmin(chisquarearr)]
 # next integrate the sprtum to get flux
-bestmodel=modellist[indmin(chisquarearr)]
+bestmodel=modellist[argmin(chisquarearr)]
 bolflux=boloflux(spectrum,waves)
 
 end
